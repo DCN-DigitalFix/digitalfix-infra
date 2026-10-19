@@ -1,4 +1,4 @@
-# Clúster RabbitMQ de dos nodos para DigitalFix.
+# Infraestructura de DigitalFix: clúster RabbitMQ de dos nodos y PostgreSQL.
 #
 # rabbit1 arranca normal y queda como nodo semilla. rabbit2 espera a que el
 # primero responda a su sonda, se resetea y se une al clúster antes de
@@ -11,9 +11,9 @@
 # El join va dentro del propio rabbit2 y no en un contenedor aparte, para que
 # un fallo detenga el contenedor en vez de quedar oculto. Y sin "|| true": si
 # algo no funciona, tiene que notarse.
-
+ 
 services:
-
+ 
   rabbit1:
     image: rabbitmq:3.13-management
     container_name: digitalfix-rabbit1
@@ -38,7 +38,7 @@ services:
       retries: 12
       start_period: 30s
     restart: unless-stopped
-
+ 
   rabbit2:
     image: rabbitmq:3.13-management
     container_name: digitalfix-rabbit2
@@ -77,11 +77,47 @@ services:
         rabbitmq-server
       "
     restart: unless-stopped
-
+ 
+  # ---------------------------------------------------------------------------
+  # Base de datos de ms-digitalfix-workorders.
+  #
+  # El volumen es lo que distingue esto del H2 en memoria del perfil dev: los
+  # datos sobreviven a "docker compose down" y al reinicio del servidor. Solo
+  # se pierden con "docker compose down -v".
+  #
+  # La imagen alpine pesa unos 80 MB y el proceso ocupa poco más de 30 MB de
+  # RAM en reposo, asi que convive sin problema con los dos nodos de RabbitMQ
+  # en una instancia chica.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: digitalfix-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-digitalfix}
+      POSTGRES_USER: ${DB_USER:-digitalfix}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-digitalfix}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - digitalfix-mq
+    healthcheck:
+      # pg_isready responde recien cuando el motor acepta conexiones. Arrancar
+      # el microservicio antes de eso provoca un fallo de conexion al iniciar.
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-digitalfix} -d ${DB_NAME:-digitalfix}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+ 
 volumes:
   rabbit1-data:
   rabbit2-data:
-
+  postgres-data:
+ 
 networks:
   digitalfix-mq:
     driver: bridge
+ 
