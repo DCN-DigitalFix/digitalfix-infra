@@ -1,0 +1,87 @@
+# Clúster RabbitMQ de dos nodos para DigitalFix.
+#
+# rabbit1 arranca normal y queda como nodo semilla. rabbit2 espera a que el
+# primero responda a su sonda, se resetea y se une al clúster antes de
+# levantar su propio servidor en primer plano.
+#
+# Los dos comparten la cookie de Erlang: es lo que les permite reconocerse
+# como parte del mismo clúster. Sin ella el join falla con un error de
+# autenticación que no menciona la cookie por ninguna parte.
+#
+# El join va dentro del propio rabbit2 y no en un contenedor aparte, para que
+# un fallo detenga el contenedor en vez de quedar oculto. Y sin "|| true": si
+# algo no funciona, tiene que notarse.
+
+services:
+
+  rabbit1:
+    image: rabbitmq:3.13-management
+    container_name: digitalfix-rabbit1
+    hostname: rabbit1
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${ERLANG_COOKIE:-digitalfix-cookie-compartida}
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-digitalfix}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS:-digitalfix}
+    ports:
+      - "5672:5672"      # AMQP
+      - "15672:15672"    # Management UI
+    volumes:
+      - rabbit1-data:/var/lib/rabbitmq
+    networks:
+      - digitalfix-mq
+    healthcheck:
+      # rabbit2 no intenta unirse hasta que esta sonda pasa. Sin la espera, el
+      # join encuentra al nodo semilla a medio arrancar y falla.
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  rabbit2:
+    image: rabbitmq:3.13-management
+    container_name: digitalfix-rabbit2
+    hostname: rabbit2
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${ERLANG_COOKIE:-digitalfix-cookie-compartida}
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-digitalfix}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS:-digitalfix}
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - rabbit2-data:/var/lib/rabbitmq
+    networks:
+      - digitalfix-mq
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+    # Secuencia de incorporación al clúster:
+    #   1. arranca en segundo plano para poder usar rabbitmqctl
+    #   2. detiene la aplicación, dejando vivo el nodo Erlang
+    #   3. reset borra su estado local, requisito para unirse
+    #   4. join_cluster lo enlaza con rabbit1
+    #   5. se detiene del todo y vuelve a arrancar en primer plano, para que
+    #      el servidor sea el proceso principal del contenedor y Docker pueda
+    #      vigilarlo y detenerlo correctamente
+    command: >
+      bash -c "
+        rabbitmq-server -detached &&
+        sleep 15 &&
+        rabbitmqctl stop_app &&
+        rabbitmqctl reset &&
+        rabbitmqctl join_cluster rabbit@rabbit1 &&
+        rabbitmqctl shutdown &&
+        sleep 3 &&
+        rabbitmq-server
+      "
+    restart: unless-stopped
+
+volumes:
+  rabbit1-data:
+  rabbit2-data:
+
+networks:
+  digitalfix-mq:
+    driver: bridge

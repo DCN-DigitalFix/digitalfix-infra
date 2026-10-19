@@ -1,0 +1,11 @@
+﻿# Credenciales reales del broker. Solo se versiona .env.example
+.env
+
+# Cada modulo tiene su propio repositorio
+DigitalFix-Backend/
+DigitalFix-Frontend/
+ms-digitalfix-bff/
+ms-digitalfix-notify/
+ms-digitalfix-rabbitmq-admin/
+ms-digitalfix-report/
+ms-digitalfix-workorders/
