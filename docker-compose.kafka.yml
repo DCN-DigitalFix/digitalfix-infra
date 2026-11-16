@@ -1,0 +1,142 @@
+# Clúster Kafka: 3 Zookeeper + 3 brokers + creación de los dos tópicos.
+# Uso:  docker compose -f docker-compose.kafka.yml --env-file .env up -d
+name: digitalfix-kafka
+
+x-zookeeper: &zookeeper
+  image: confluentinc/cp-zookeeper:7.6.1
+  restart: unless-stopped
+  environment: &zookeeper-env
+    ZOOKEEPER_CLIENT_PORT: 2181
+    ZOOKEEPER_TICK_TIME: 2000
+    ZOOKEEPER_INIT_LIMIT: 5
+    ZOOKEEPER_SYNC_LIMIT: 2
+    ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
+    KAFKA_HEAP_OPTS: -Xms128m -Xmx256m
+  networks: [kafka-net]
+
+x-broker: &broker
+  image: confluentinc/cp-kafka:7.6.1
+  restart: unless-stopped
+  depends_on: [zookeeper1, zookeeper2, zookeeper3]
+  networks: [kafka-net]
+  healthcheck:
+    test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+    interval: 15s
+    timeout: 10s
+    retries: 10
+    start_period: 40s
+
+x-broker-env: &broker-env
+  KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+  # INTERNAL: entre brokers y contenedores. EXTERNAL: microservicios y Kafka UI.
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  # Con 3 brokers: replicación 3 y ISR mínimo 2 (tolera la caída de un broker sin perder escrituras).
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  # Los tópicos se declaran a propósito; no se crean solos por un typo.
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_NUM_PARTITIONS: 3
+  KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+  KAFKA_LOG_RETENTION_HOURS: 168
+
+services:
+  zookeeper1:
+    <<: *zookeeper
+    container_name: digitalfix-zookeeper1
+    environment: { <<: *zookeeper-env, ZOOKEEPER_SERVER_ID: 1 }
+    volumes: [zk1-data:/var/lib/zookeeper/data, zk1-log:/var/lib/zookeeper/log]
+
+  zookeeper2:
+    <<: *zookeeper
+    container_name: digitalfix-zookeeper2
+    environment: { <<: *zookeeper-env, ZOOKEEPER_SERVER_ID: 2 }
+    volumes: [zk2-data:/var/lib/zookeeper/data, zk2-log:/var/lib/zookeeper/log]
+
+  zookeeper3:
+    <<: *zookeeper
+    container_name: digitalfix-zookeeper3
+    environment: { <<: *zookeeper-env, ZOOKEEPER_SERVER_ID: 3 }
+    volumes: [zk3-data:/var/lib/zookeeper/data, zk3-log:/var/lib/zookeeper/log]
+
+  kafka1:
+    <<: *broker
+    container_name: digitalfix-kafka1
+    ports: ["9092:9092"]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:29092,EXTERNAL://${KAFKA_HOST:?defina KAFKA_HOST}:9092
+    volumes: [kafka1-data:/var/lib/kafka/data]
+
+  kafka2:
+    <<: *broker
+    container_name: digitalfix-kafka2
+    ports: ["9093:9093"]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 2
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:29092,EXTERNAL://${KAFKA_HOST:?defina KAFKA_HOST}:9093
+    volumes: [kafka2-data:/var/lib/kafka/data]
+
+  kafka3:
+    <<: *broker
+    container_name: digitalfix-kafka3
+    ports: ["9094:9094"]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 3
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka3:29092,EXTERNAL://${KAFKA_HOST:?defina KAFKA_HOST}:9094
+    volumes: [kafka3-data:/var/lib/kafka/data]
+
+  # Crea los dos tópicos una vez que los tres brokers están sanos y termina.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: digitalfix-kafka-init
+    restart: "no"
+    networks: [kafka-net]
+    depends_on:
+      kafka1: { condition: service_healthy }
+      kafka2: { condition: service_healthy }
+      kafka3: { condition: service_healthy }
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        BS=kafka1:29092,kafka2:29092,kafka3:29092
+        # Eventos de cambio de estado de órdenes: 7 días de retención.
+        kafka-topics --bootstrap-server $$BS --create --if-not-exists \
+          --topic digitalfix.workorders.events \
+          --partitions 3 --replication-factor 3 \
+          --config cleanup.policy=delete \
+          --config retention.ms=604800000 \
+          --config min.insync.replicas=2
+        # Eventos de auditoría: 30 días de retención.
+        kafka-topics --bootstrap-server $$BS --create --if-not-exists \
+          --topic digitalfix.audit.events \
+          --partitions 3 --replication-factor 3 \
+          --config cleanup.policy=delete \
+          --config retention.ms=2592000000 \
+          --config min.insync.replicas=2
+        kafka-topics --bootstrap-server $$BS --describe
+
+networks:
+  kafka-net:
+    name: digitalfix-kafka-net
+
+volumes:
+  zk1-data: {}
+  zk1-log: {}
+  zk2-data: {}
+  zk2-log: {}
+  zk3-data: {}
+  zk3-log: {}
+  kafka1-data: {}
+  kafka2-data: {}
+  kafka3-data: {}
