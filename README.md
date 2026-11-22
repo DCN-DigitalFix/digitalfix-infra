@@ -10,10 +10,17 @@ Caso semestral DSY1107 (Desarrollo Cloud Native I).
 | `DigitalFix-Frontend/Frontend-DC-DigitalFix` | 4200 | SPA Angular + MSAL (Entra ID) |
 | `ms-digitalfix-bff` | 8080 | BFF: valida JWT, autoriza por rol/scope, delega a workorders |
 | `ms-digitalfix-workorders` | 8081 | Dominio de OT (JPA: H2 dev / Oracle prod) + productor RabbitMQ |
-| `ms-digitalfix-report` | 8082 | Reportería (JWT) |
-| `ms-digitalfix-notify` | 8083 | Consumidor RabbitMQ (3 colas + DLQ) |
+| `ms-digitalfix-catalog` | 8082 | Catálogo (JWT, tenant propio) |
+| `ms-digitalfix-audit` | 8083 | Consumidor Kafka (grupo `audit-timeline`): timeline de auditoría por orden |
+| `ms-digitalfix-notify` | 8084 | Consumidor RabbitMQ (3 colas + DLQ) |
+| `ms-digitalfix-report` | 8086 | Consumidor Kafka (grupo `report-metrics`): resumen y certificados |
 | `ms-digitalfix-rabbitmq-admin` | 8090 | Administración de colas/exchanges/bindings |
+| Kafka UI | 8089 | Administración de brokers/tópicos (`docker-compose.kafka-ui.yml`) |
 | `docker-compose.yml` | — | Clúster RabbitMQ de 2 nodos |
+| `docker-compose.kafka.yml` | — | Clúster Kafka: 3 Zookeeper + 3 brokers |
+
+`audit` y `report` leen el mismo tópico `digitalfix.workorders.events`, cada
+uno con su propio consumer group, así que ninguno le quita mensajes al otro.
 
 ## Ejecución local
 
