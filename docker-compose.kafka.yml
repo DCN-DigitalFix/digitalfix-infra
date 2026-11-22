@@ -124,6 +124,16 @@ services:
           --config cleanup.policy=delete \
           --config retention.ms=2592000000 \
           --config min.insync.replicas=2
+        # Dead letter topic de ms-digitalfix-audit: aquí caen los mensajes de
+        # digitalfix.workorders.events que agotaron sus reintentos o que el
+        # parser rechazó de entrada. auto.create.topics.enable=false, así que
+        # sin esto el error handler no tiene dónde publicar y la derivación falla.
+        kafka-topics --bootstrap-server $$BS --create --if-not-exists \
+          --topic digitalfix.workorders.events.DLT \
+          --partitions 3 --replication-factor 3 \
+          --config cleanup.policy=delete \
+          --config retention.ms=2592000000 \
+          --config min.insync.replicas=2
         kafka-topics --bootstrap-server $$BS --describe
 
 networks:
