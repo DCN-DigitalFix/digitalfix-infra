@@ -194,7 +194,7 @@ cd ms-digitalfix-rabbitmq-admin
 ./mvnw spring-boot:run
 ```
 
-`GET /api/health` sin token → 200. `POST /api/queues` sin token → 401. Con un
+`GET /api/health` sin token → 200. `POST /api/v1/queues` sin token → 401. Con un
 token de rol `Cliente` → 403. El token sale del botón **Copiar access token**
 en `/profile` del frontend.
 

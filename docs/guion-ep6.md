@@ -85,8 +85,8 @@ Abrir `http://localhost:8089`, iniciar sesión, y mostrar:
 
 ## 5. Flujo productor → consumidor (1.5 min)
 
-1. Un usuario crea una orden (`POST /api/workorders`) o un supervisor
-   cambia su estado (`PATCH /api/workorders/{id}/estado`).
+1. Un usuario crea una orden (`POST /api/v1/workorders`) o un supervisor
+   cambia su estado (`PATCH /api/v1/workorders/{id}/estado`).
 2. `WorkOrderService` guarda el cambio en la base de datos (fuente de
    verdad) y luego llama a `WorkOrderKafkaPublisher`, que publica un
    `WorkOrderEvent` en `digitalfix.workorders.events`, con la clave
@@ -156,16 +156,16 @@ Mostrar `ms-digitalfix-kafka-admin` (puerto 8087), el microservicio que
 expone la administración del clúster como API REST, protegida por rol
 `Admin`:
 
-- `GET /api/kafka/topics` — lista tópicos con particiones, factor de
+- `GET /api/v1/kafka/topics` — lista tópicos con particiones, factor de
   replicación y configuración actual.
-- `PUT /api/kafka/topics/{nombre}/partitions` — amplía particiones a un
+- `PUT /api/v1/kafka/topics/{nombre}/partitions` — amplía particiones a un
   nuevo total (Kafka no permite reducirlas; el servicio lo valida antes de
   llamar al broker).
-- `PUT /api/kafka/topics/{nombre}/config` — cambia configuración en caliente
+- `PUT /api/v1/kafka/topics/{nombre}/config` — cambia configuración en caliente
   (por ejemplo `retention.ms`), sin reiniciar el clúster.
-- `DELETE /api/kafka/topics/{nombre}` — borra un tópico, salvo que esté en
+- `DELETE /api/v1/kafka/topics/{nombre}` — borra un tópico, salvo que esté en
   la lista de protegidos (los 4 tópicos de negocio y sus DLT).
-- `GET /api/kafka/consumer-groups` y `GET /api/kafka/consumer-groups/{id}`
+- `GET /api/v1/kafka/consumer-groups` y `GET /api/v1/kafka/consumer-groups/{id}`
   — estado del grupo, miembros y sus particiones asignadas.
 
 "Antes de crear un tópico o ampliar particiones, el servicio valida contra
@@ -177,7 +177,7 @@ dejar que el broker lo rechace con un error más críptico."
 
 ## 9. Monitoreo: offsets y lag (1 min)
 
-En el mismo `kafka-admin`, `GET /api/kafka/consumer-groups/{id}` devuelve,
+En el mismo `kafka-admin`, `GET /api/v1/kafka/consumer-groups/{id}` devuelve,
 por partición: `offsetActual` (hasta dónde leyó el grupo), `offsetFinal`
 (hasta dónde llega el tópico) y `lag` (la diferencia).
 
@@ -227,19 +227,19 @@ encuentren:
 ## 12. Demo paso a paso (2–3 min)
 
 1. Mostrar Kafka UI con los 3 consumer groups al día (lag 0).
-2. `POST /api/workorders` desde el frontend (o Postman) → crear una orden
+2. `POST /api/v1/workorders` desde el frontend (o Postman) → crear una orden
    nueva.
 3. En Kafka UI, abrir `digitalfix.workorders.events` → mostrar el mensaje
    nuevo, con su clave `ordenId` y `eventType: "ORDEN_CREADA"`.
 4. Ir a la pantalla de Auditoría del frontend (o `GET
-   /api/audit/orders/{id}/timeline`) → mostrar que el evento ya aparece en
+   /api/v1/audit/orders/{id}/timeline`) → mostrar que el evento ya aparece en
    la línea de tiempo.
-5. `PATCH /api/workorders/{id}/estado` → cambiar el estado de la orden.
+5. `PATCH /api/v1/workorders/{id}/estado` → cambiar el estado de la orden.
 6. Mostrar el segundo mensaje en Kafka UI (`ESTADO_CAMBIADO`,
    `estadoAnterior`/`estadoNuevo` poblados) y la línea de tiempo
    actualizada con dos eventos.
 7. Abrir la pantalla de Administración de Kafka del frontend (o `GET
-   /api/kafka/consumer-groups/audit-timeline`) → mostrar que el lag sigue
+   /api/v1/kafka/consumer-groups/audit-timeline`) → mostrar que el lag sigue
    en 0: el consumidor absorbió los dos eventos sin atrasarse.
 8. (Opcional, si hay tiempo) Producir un mensaje inválido directamente en
    Kafka UI (`{no es json`) y mostrar que aparece en
